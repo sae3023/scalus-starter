@@ -111,9 +111,9 @@ class MintingPolicySpec extends AnyFunSuite with ScalaCheckPropertyChecks with S
         )
     }
 
-    test(s"validator size is 1409 bytes") {
+    test(s"validator size is 1402 bytes") {
         val size = mintingScript.program.cborEncoded.length
-        assert(size == 1409)
+        assert(size == 1402)
     }
 
     private def makeScriptContext(mint: Value, signatories: List[PubKeyHash]) =

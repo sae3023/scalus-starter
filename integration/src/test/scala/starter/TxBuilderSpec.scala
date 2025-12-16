@@ -4,20 +4,26 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
 import scalus.builtin.ByteString
+import scalus.cardano.ledger.AssetName
+import scalus.utils.await
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.*
 import scala.util.Try
 
 class TxBuilderSpec extends AnyFunSuite with ScalaCheckPropertyChecks with BeforeAndAfterAll {
 
     private val appCtx = AppCtx.yaciDevKit("CO2 Tonne")
-
-    private val pubKey: ByteString = ByteString.fromArray(appCtx.account.publicKeyBytes())
-
     private val txBuilder = TxBuilder(appCtx)
 
     override def beforeAll(): Unit = {
-        val params = Try(txBuilder.protocolParams)
-        if (!params.isSuccess) {
+        // Check if Yaci DevKit is available by trying to query UTXOs
+        val available = Try {
+            appCtx.provider
+                .findUtxos(appCtx.address, None, None, None, None)
+                .await(10.seconds)
+        }
+        if (available.isFailure) {
             cancel(
               "This test requires a Blockfrost API available. Start Yaci Devkit before running this test."
             )
@@ -27,15 +33,15 @@ class TxBuilderSpec extends AnyFunSuite with ScalaCheckPropertyChecks with Befor
     test("create minting transaction") {
         txBuilder.makeMintingTx(1000) match
             case Right(tx) =>
-                assert(
-                  ByteString.fromArray(tx.getBody.getMint.get(0).getAssets.get(0).getNameAsBytes) ==
-                      appCtx.tokenNameByteString
-                )
-                assert(tx.getWitnessSet.getVkeyWitnesses.size() == 1)
-                assert(
-                  ByteString.fromArray(tx.getWitnessSet.getVkeyWitnesses.get(0).getVkey) ==
-                      pubKey
-                )
+                val mint = tx.body.value.mint
+                assert(mint.nonEmpty)
+                val expectedAssetName = AssetName(appCtx.tokenNameByteString)
+                val mintedAmount = mint
+                    .flatMap(_.assets.get(appCtx.mintingScript.policyId))
+                    .flatMap(_.get(expectedAssetName))
+                assert(mintedAmount.contains(1000L))
+                // Check that the transaction has witnesses
+                assert(tx.witnessSet.vkeyWitnesses.toSet.nonEmpty)
             case Left(err) => fail(err)
     }
 

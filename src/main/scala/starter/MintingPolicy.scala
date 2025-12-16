@@ -1,10 +1,10 @@
 package starter
 
-import com.bloxbean.cardano.client.plutus.spec.{PlutusScript, PlutusV3Script}
 import scalus.*
 import scalus.Compiler.compile
 import scalus.builtin.Data.{FromData, ToData, toData}
 import scalus.builtin.{ByteString, Data, FromData, ToData}
+import scalus.cardano.ledger.{AssetName, Script, ScriptHash}
 import scalus.compiler.sir.SIR
 import scalus.ledger.api.v3.*
 import scalus.prelude.{*, given}
@@ -89,16 +89,9 @@ object MintingPolicyGenerator {
     }
 }
 
-trait MintingScript {
-    def plutusScript: PlutusScript
-    def scriptHash: ByteString = ByteString.fromArray(plutusScript.getScriptHash)
-}
-
-class MintingPolicyScript(val program: Program) extends MintingScript {
-    lazy val plutusScript: PlutusV3Script = PlutusV3Script
-        .builder()
-        .`type`("PlutusScriptV3")
-        .cborHex(program.doubleCborHex)
-        .build()
-        .asInstanceOf[PlutusV3Script]
+class MintingPolicyScript(val program: Program) {
+    lazy val scalusScript: Script.PlutusV3 = Script.PlutusV3(program.cborByteString)
+    lazy val policyId: ScriptHash = scalusScript.scriptHash
+    // ScriptHash is an opaque type that extends ByteString, so we can use it directly
+    lazy val scriptHash: ByteString = policyId
 }

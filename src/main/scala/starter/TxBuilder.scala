@@ -1,98 +1,61 @@
 package starter
 
-import com.bloxbean.cardano.client.api.model.ProtocolParams
-import com.bloxbean.cardano.client.backend.api.DefaultUtxoSupplier
-import com.bloxbean.cardano.client.function.helper.SignerProviders
-import com.bloxbean.cardano.client.plutus.spec.PlutusData
-import com.bloxbean.cardano.client.quicktx.{QuickTxBuilder, ScriptTx}
-import com.bloxbean.cardano.client.transaction.spec.{Asset, Transaction}
-import scalus.bloxbean.{EvaluatorMode, NoScriptSupplier, ScalusTransactionEvaluator}
-import scalus.cardano.ledger.SlotConfig
+import scalus.builtin.Data
+import scalus.cardano.ledger.{AssetName, Transaction, Value}
+import scalus.cardano.txbuilder.TxBuilder as ScalusTxBuilder
+import scalus.utils.await
 
-import java.math.BigInteger
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.*
+import scala.util.Try
 
 class TxBuilder(ctx: AppCtx) {
-    private val backendService = ctx.backendService
-    private val account = ctx.account
-    private lazy val quickTxBuilder = QuickTxBuilder(backendService)
-
-    lazy val protocolParams: ProtocolParams = {
-        val result = backendService.getEpochService.getProtocolParameters
-        if !result.isSuccessful then sys.error(result.getResponse)
-        result.getValue
-    }
-
-    private lazy val utxoSupplier = new DefaultUtxoSupplier(backendService.getUtxoService)
-
-    private lazy val evaluator = ScalusTransactionEvaluator(
-      slotConfig = SlotConfig.Preprod,
-      protocolParams = protocolParams,
-      utxoSupplier = utxoSupplier,
-      scriptSupplier = NoScriptSupplier(),
-      mode = EvaluatorMode.EVALUATE_AND_COMPUTE_COST
-    )
-
-    private val address: String = account.getBaseAddress.getAddress
 
     def makeMintingTx(amount: Long): Either[String, Transaction] = {
-        for
-            utxo <- backendService.getUtxoService
-                .getUtxos(address, 100, 1)
-                .toEither
+        Try {
+            val assetName = AssetName(ctx.tokenNameByteString)
+            val assets = Map(assetName -> amount)
+            val mintedValue = Value.asset(ctx.mintingScript.policyId, assetName, amount)
 
-            scriptTx = new ScriptTx()
-                .mintAsset(
-                  ctx.mintingScript.plutusScript,
-                  Asset.builder().name(ctx.tokenName).value(BigInteger.valueOf(amount)).build(),
-                  PlutusData.unit(),
-                  address
+            ScalusTxBuilder(ctx.cardanoInfo)
+                .mintAndAttach(
+                  redeemer = Data.unit,
+                  assets = assets,
+                  script = ctx.mintingScript.scalusScript,
+                  requiredSigners = Set(ctx.addrKeyHash)
                 )
-                .collectFrom(utxo)
-                .withChangeAddress(address)
-
-            signedTx = quickTxBuilder
-                .compose(scriptTx)
-                // evaluate script cost using scalus
-                .withTxEvaluator(evaluator)
-                .withSigner(SignerProviders.signerFrom(account))
-                .withRequiredSigners(account.getBaseAddress)
-                .feePayer(account.baseAddress())
-                .buildAndSign()
-        yield signedTx
+                .payTo(ctx.address, mintedValue + Value.ada(2))
+                .complete(ctx.provider, ctx.address)
+                .await(30.seconds)
+                .sign(ctx.signer)
+                .transaction
+        }.toEither.left.map(_.getMessage)
     }
 
     def makeBurningTx(amount: Long): Either[String, Transaction] = {
-        for
-            utxo <- backendService.getUtxoService
-                .getUtxos(address, ctx.unitName, 100, 1)
-                .toEither
+        Try {
+            val assetName = AssetName(ctx.tokenNameByteString)
+            // amount should be negative for burning
+            val assets = Map(assetName -> amount)
 
-            scriptTx = new ScriptTx()
-                .mintAsset(
-                  ctx.mintingScript.plutusScript,
-                  Asset.builder().name(ctx.tokenName).value(BigInteger.valueOf(amount)).build(),
-                  PlutusData.unit(),
-                  address
+            ScalusTxBuilder(ctx.cardanoInfo)
+                .mintAndAttach(
+                  redeemer = Data.unit,
+                  assets = assets,
+                  script = ctx.mintingScript.scalusScript,
+                  requiredSigners = Set(ctx.addrKeyHash)
                 )
-                .collectFrom(utxo)
-                .withChangeAddress(address)
-
-            signedTx = quickTxBuilder
-                .compose(scriptTx)
-                // evaluate script cost using scalus
-                .withTxEvaluator(evaluator)
-                .withSigner(SignerProviders.signerFrom(account))
-                .withRequiredSigners(account.getBaseAddress)
-                .feePayer(account.baseAddress())
-                .buildAndSign()
-        yield signedTx
+                .complete(ctx.provider, ctx.address)
+                .await(30.seconds)
+                .sign(ctx.signer)
+                .transaction
+        }.toEither.left.map(_.getMessage)
     }
 
     def submitMintingTx(amount: Long): Either[String, String] = {
         for
-            signedTx <- makeMintingTx(amount)
-            result = backendService.getTransactionService.submitTransaction(signedTx.serialize())
-            r <- Either.cond(result.isSuccessful, result.getValue, result.getResponse)
-        yield r
+            tx <- makeMintingTx(amount)
+            result <- ctx.provider.submit(tx).await(30.seconds).left.map(_.toString)
+        yield result.toHex
     }
 }

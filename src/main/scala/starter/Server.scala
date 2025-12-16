@@ -1,109 +1,90 @@
 package starter
 
 import com.bloxbean.cardano.client.account.Account
-import com.bloxbean.cardano.client.api.model.Result
-import com.bloxbean.cardano.client.backend.api.{BackendService, TransactionService}
-import com.bloxbean.cardano.client.backend.blockfrost.common.Constants
-import com.bloxbean.cardano.client.backend.blockfrost.service.{
-    BFBackendService,
-    BFTransactionService
-}
 import com.bloxbean.cardano.client.common.model.{Network, Networks}
 import scalus.builtin.ByteString
-import scalus.ledger.api.v1.PubKeyHash
+import scalus.cardano.address.Address
+import scalus.cardano.ledger.{AddrKeyHash, CardanoInfo}
+import scalus.cardano.node.{BlockfrostProvider, Provider}
+import scalus.cardano.txbuilder.TransactionSigner
+import scalus.ledger.api.v3.PubKeyHash
+import sttp.client4.DefaultFutureBackend
 import sttp.tapir.*
 import sttp.tapir.server.netty.sync.NettySyncServer
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
 
+import scala.concurrent.ExecutionContext.Implicits.global
+
+// Provide sttp backend for BlockfrostProvider
+given sttp.client4.Backend[scala.concurrent.Future] = DefaultFutureBackend()
+
 case class AppCtx(
-    network: Network,
+    cardanoInfo: CardanoInfo,
+    provider: Provider,
     account: Account,
-    backendService: BackendService,
+    signer: TransactionSigner,
     tokenName: String
 ) {
     lazy val pubKeyHash: PubKeyHash = PubKeyHash(
       ByteString.fromArray(account.hdKeyPair().getPublicKey.getKeyHash)
     )
+    lazy val addrKeyHash: AddrKeyHash = AddrKeyHash(
+      ByteString.fromArray(account.hdKeyPair().getPublicKey.getKeyHash)
+    )
     lazy val tokenNameByteString: ByteString = ByteString.fromString(tokenName)
+    lazy val address: Address = Address.fromBech32(account.baseAddress())
     // combined minting script hash and token name
     lazy val unitName: String = (mintingScript.scriptHash ++ tokenNameByteString).toHex
-    lazy val mintingScript: MintingScript =
-        MintingPolicyV1Generator.makeMintingPolicyScript(pubKeyHash, tokenNameByteString)
-}
-
-class UZHBackendService(url: String) extends BFBackendService(url, "") {
-    override def getTransactionService: TransactionService = new BFTransactionService(url, "") {
-        override def submitTransaction(cborData: Array[Byte]): Result[String] = {
-            import requests.*
-            val response =
-                post(
-                  "http://130.60.24.200:8090/api/submit/tx",
-                  data = cborData,
-                  headers = Map("Content-Type" -> "application/cbor"),
-                  check = false
-                )
-
-            Result
-                .create(
-                  response.is2xx,
-                  StatusMessages.byStatusCode.getOrElse(response.statusCode, "")
-                )
-                .code(response.statusCode)
-                .asInstanceOf[Result[String]]
-                .withValue(response.text())
-                .asInstanceOf[Result[String]]
-        }
-    }
+    lazy val mintingScript: MintingPolicyScript =
+        MintingPolicyGenerator.makeMintingPolicyScript(pubKeyHash, tokenNameByteString)
 }
 
 object AppCtx {
+    private def createSigner(account: Account): TransactionSigner = {
+        val privateKey = ByteString.fromArray(account.hdKeyPair().getPrivateKey.getKeyData.take(32))
+        val publicKey = ByteString.fromArray(account.hdKeyPair().getPublicKey.getKeyData)
+        TransactionSigner(Set((privateKey, publicKey)))
+    }
+
     def apply(
         network: Network,
         mnemonic: String,
         blockfrostApiKey: String,
         tokenName: String
     ): AppCtx = {
-        val url =
-            if network == Networks.mainnet() then Constants.BLOCKFROST_MAINNET_URL
-            else if network == Networks.preview() then Constants.BLOCKFROST_PREVIEW_URL
-            else if network == Networks.preprod() then Constants.BLOCKFROST_PREPROD_URL
+        val (cardanoInfo, provider) =
+            if network == Networks.mainnet() then
+                (CardanoInfo.mainnet, BlockfrostProvider.mainnet(blockfrostApiKey))
+            else if network == Networks.preview() then
+                (CardanoInfo.preview, BlockfrostProvider.preview(blockfrostApiKey))
+            else if network == Networks.preprod() then
+                (CardanoInfo.preprod, BlockfrostProvider.preprod(blockfrostApiKey))
             else sys.error(s"Unsupported network: $network")
-        new AppCtx(
-          network,
-          Account.createFromMnemonic(network, mnemonic),
-          new BFBackendService(url, blockfrostApiKey),
-          tokenName
-        )
-    }
 
-    def uzhCtx(mnemonic: String, tokenName: String): AppCtx = {
-        val network = new Network(0, 0)
+        val account = Account.createFromMnemonic(network, mnemonic)
         new AppCtx(
-          network,
-          Account.createFromMnemonic(network, mnemonic),
-          new UZHBackendService("http://130.60.24.200:3000"),
+          cardanoInfo,
+          provider,
+          account,
+          createSigner(account),
           tokenName
         )
     }
 
     def yaciDevKit(tokenName: String): AppCtx = {
-        val url = "http://localhost:8080/api/v1/"
         val network = new Network(0, 42)
         val mnemonic =
             "test test test test test test test test test test test test test test test test test test test test test test test sauce"
+        val account = Account.createFromMnemonic(network, mnemonic)
         new AppCtx(
-          network,
-          Account.createFromMnemonic(network, mnemonic),
-          new BFBackendService(url, ""),
+          CardanoInfo.preprod,
+          BlockfrostProvider.localYaci,
+          account,
+          createSigner(account),
           tokenName
         )
     }
 }
-
-extension [A](result: Result[A])
-    def toEither: Either[String, A] =
-        if result.isSuccessful then Right(result.getValue)
-        else Left(result.getResponse)
 
 class Server(ctx: AppCtx):
     private val mint = endpoint.put
