@@ -30,10 +30,10 @@ class TxBuilder(ctx: AppCtx) {
             ScalusTxBuilder(ctx.cardanoInfo)
                 .spend(utxos) // Spend all UTXOs
                 .collaterals(firstUtxo) // Use same UTXO as collateral
-                .mintAndAttach(
-                  redeemer = Data.unit,
-                  assets = assets,
+                .mint(
                   script = ctx.mintingScript.scalusScript,
+                  assets = assets,
+                  redeemer = Data.unit,
                   requiredSigners = Set(ctx.addrKeyHash)
                 )
                 .payTo(ctx.address, mintedValue + Value.ada(2))
@@ -63,10 +63,10 @@ class TxBuilder(ctx: AppCtx) {
             ScalusTxBuilder(ctx.cardanoInfo)
                 .spend(utxos) // Spend all UTXOs
                 .collaterals(firstUtxo) // Use same UTXO as collateral
-                .mintAndAttach(
-                  redeemer = Data.unit,
-                  assets = assets,
+                .mint(
                   script = ctx.mintingScript.scalusScript,
+                  assets = assets,
+                  redeemer = Data.unit,
                   requiredSigners = Set(ctx.addrKeyHash)
                 )
                 .complete(ctx.provider, ctx.address)
