@@ -1,5 +1,5 @@
-val scalusVersion = "0.13.0+603-3054b8e1-SNAPSHOT"
-val scalusPluginVersion = "0.13.0+586-2d9aee44-SNAPSHOT"
+val scalusVersion = "0.13.0+617-75c0e079-SNAPSHOT"
+val scalusPluginVersion = "0.13.0+617-75c0e079-SNAPSHOT"
 
 resolvers += Resolver.sonatypeCentralSnapshots
 
@@ -29,7 +29,6 @@ lazy val core = (project in file("."))
         "com.monovore" %% "decline" % "2.5.0",
         "org.slf4j" % "slf4j-simple" % "2.0.17"
       ),
-      libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.0",
       libraryDependencies ++= Seq(
         "org.scalatest" %% "scalatest" % "3.2.19" % Test,
         "org.scalatestplus" %% "scalacheck-1-18" % "3.2.19.0" % Test,
@@ -43,10 +42,14 @@ lazy val integration = (project in file("integration"))
     .settings(
       publish / skip := true,
       // test dependencies
-      libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.0",
       libraryDependencies ++= Seq(
         "org.scalatest" %% "scalatest" % "3.2.19" % Test,
         "org.scalatestplus" %% "scalacheck-1-18" % "3.2.19.0" % Test,
-        "org.scalacheck" %% "scalacheck" % "1.19.0" % Test
+        "org.scalacheck" %% "scalacheck" % "1.19.0" % Test,
+        // Testcontainers for integration testing
+        "com.dimafeng" %% "testcontainers-scala-core" % "0.41.5" % Test,
+        "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.41.5" % Test,
+        // Yaci DevKit for Cardano local devnet
+        "com.bloxbean.cardano" % "yaci-cardano-test" % "0.1.0" % Test
       )
     )

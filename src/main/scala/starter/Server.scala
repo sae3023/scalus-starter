@@ -55,11 +55,23 @@ object AppCtx {
     ): AppCtx = {
         val (cardanoInfo, provider, scalusNetwork) =
             if network == Networks.mainnet() then
-                (CardanoInfo.mainnet, BlockfrostProvider.mainnet(blockfrostApiKey), ScalusNetwork.Mainnet)
+                (
+                  CardanoInfo.mainnet,
+                  BlockfrostProvider.mainnet(blockfrostApiKey),
+                  ScalusNetwork.Mainnet
+                )
             else if network == Networks.preview() then
-                (CardanoInfo.preview, BlockfrostProvider.preview(blockfrostApiKey), ScalusNetwork.Testnet)
+                (
+                  CardanoInfo.preview,
+                  BlockfrostProvider.preview(blockfrostApiKey),
+                  ScalusNetwork.Testnet
+                )
             else if network == Networks.preprod() then
-                (CardanoInfo.preprod, BlockfrostProvider.preprod(blockfrostApiKey), ScalusNetwork.Testnet)
+                (
+                  CardanoInfo.preprod,
+                  BlockfrostProvider.preprod(blockfrostApiKey),
+                  ScalusNetwork.Testnet
+                )
             else sys.error(s"Unsupported network: $network")
 
         val account = Account.createFromMnemonic(network, mnemonic)
@@ -95,7 +107,8 @@ object AppCtx {
         val cardanoInfo = CardanoInfo(protocolParams, ScalusNetwork.Testnet, yaciSlotConfig)
 
         // Use BloxbeanAccount for proper HD key signing
-        val bloxbeanAccount = BloxbeanAccount(ScalusNetwork.Testnet, mnemonic, PaymentDerivationPath)
+        val bloxbeanAccount =
+            BloxbeanAccount(ScalusNetwork.Testnet, mnemonic, PaymentDerivationPath)
         val signer = new TransactionSigner(Set(bloxbeanAccount.paymentKeyPair))
 
         new AppCtx(
@@ -106,6 +119,7 @@ object AppCtx {
           tokenName
         )
     }
+
 }
 
 class Server(ctx: AppCtx):
